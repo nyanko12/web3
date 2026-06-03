@@ -366,6 +366,98 @@
     .advice-item.info { background: var(--green-bg); border: 1px solid #a8d5bb; color: #1a5c3a; }
     .advice-icon { flex-shrink: 0; margin-top: 1px; }
 
+    /* ===== 実績・マーカーモーダル ===== */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.45); backdrop-filter: blur(3px);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 200; padding: 20px;
+    }
+    .modal-overlay.hidden { display: none; }
+    .modal-box {
+      background: var(--paper); border: 1px solid var(--border);
+      border-radius: 14px; padding: 26px;
+      max-width: 440px; width: 100%;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.18);
+      position: relative;
+    }
+    .modal-close {
+      position: absolute; top: 14px; right: 14px;
+      background: none; border: none; font-size: 1.1rem;
+      color: var(--ink-3); cursor: pointer; padding: 4px;
+      border-radius: 4px; transition: color 0.12s;
+    }
+    .modal-close:hover { color: var(--ink); }
+    .modal-title {
+      font-family: var(--ff-serif); font-size: 1.1rem;
+      color: var(--ink); margin-bottom: 3px; padding-right: 24px;
+    }
+    .modal-sub {
+      font-size: 0.77rem; color: var(--ink-3);
+      margin-bottom: 18px; font-family: var(--ff-mono);
+    }
+    .modal-field { margin-bottom: 14px; }
+    .modal-field > label {
+      display: block; font-size: 0.7rem; font-weight: 500;
+      color: var(--ink-3); text-transform: uppercase;
+      letter-spacing: 0.05em; margin-bottom: 6px;
+    }
+    .modal-field textarea {
+      width: 100%; font-family: var(--ff-sans); font-size: 0.87rem;
+      color: var(--ink); background: var(--bg);
+      border: 1px solid var(--border); border-radius: 7px;
+      padding: 9px 11px; outline: none; resize: vertical;
+      min-height: 72px; transition: border-color 0.15s; line-height: 1.55;
+    }
+    .modal-field textarea:focus { border-color: var(--accent); }
+    .done-toggle {
+      display: flex; align-items: center; gap: 10px;
+      padding: 11px 14px; border-radius: 8px;
+      border: 1.5px solid var(--border); background: var(--bg);
+      cursor: pointer; margin-bottom: 14px; transition: all 0.15s;
+      font-size: 0.88rem; color: var(--ink-2);
+    }
+    .done-toggle:hover { border-color: var(--green); }
+    .done-toggle.checked { border-color: var(--green); background: var(--green-bg); color: var(--green); font-weight: 500; }
+    .done-icon { font-size: 1rem; flex-shrink: 0; line-height: 1; }
+    .marker-chips { display: flex; gap: 7px; flex-wrap: wrap; }
+    .marker-chip {
+      padding: 5px 11px; border-radius: 999px;
+      border: 1.5px solid var(--border); background: var(--bg);
+      font-size: 0.8rem; cursor: pointer; transition: all 0.12s;
+      display: flex; align-items: center; gap: 4px; white-space: nowrap;
+    }
+    .marker-chip:hover { border-color: var(--ink-2); }
+    .marker-chip.selected { border-color: var(--accent); background: var(--accent-bg); font-weight: 500; }
+    .modal-actions {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line);
+    }
+    .btn-clear-record {
+      background: none; border: none; color: #c44;
+      font-size: 0.78rem; cursor: pointer; padding: 4px 6px; border-radius: 4px;
+    }
+    .btn-clear-record:hover { background: #fee; }
+
+    /* セッションの完了・マーカー表示 */
+    .cal-session { cursor: pointer; }
+    .cal-session.is-done { box-shadow: inset 0 0 0 1.5px rgba(45,106,79,0.45); }
+    .sess-done-badge {
+      position: absolute; right: 3px; top: 2px;
+      font-size: 0.58rem; line-height: 1; color: var(--green); font-weight: 700;
+    }
+    .sess-marker-badge {
+      position: absolute; right: 3px; bottom: 2px; font-size: 0.62rem; line-height: 1;
+    }
+
+    /* 日付ヘッダーのマーカー */
+    .cal-th { cursor: pointer; position: relative; }
+    .cal-th:hover { background: var(--accent-bg) !important; }
+    .day-marker-overlay {
+      position: absolute; bottom: 2px; right: 3px;
+      font-size: 0.65rem; line-height: 1; pointer-events: none;
+    }
+
     /* ===== レスポンシブ ===== */
     @media (max-width: 600px) {
       body { font-size: 13px; }
@@ -524,6 +616,36 @@
 
 </div><!-- .app -->
 
+<!-- 実績・マーカーモーダル -->
+<div id="modal-overlay" class="modal-overlay hidden" onclick="handleOverlayClick(event)">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div class="modal-title" id="modal-title"></div>
+    <div class="modal-sub" id="modal-sub"></div>
+    <div id="modal-done-wrap">
+      <div id="done-toggle" class="done-toggle" onclick="toggleDone()">
+        <span class="done-icon" id="done-icon">○</span>
+        <span id="done-label">このセッションを完了としてマーク</span>
+      </div>
+    </div>
+    <div class="modal-field">
+      <label>実施内容・メモ</label>
+      <textarea id="modal-note" placeholder="やった内容を記録しましょう…"></textarea>
+    </div>
+    <div class="modal-field">
+      <label>マーカー</label>
+      <div class="marker-chips" id="marker-chips"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-clear-record" id="btn-clear-record" onclick="deleteRecord()">記録を削除</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary" onclick="closeModal()">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveRecord()">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 // ===== 定数 =====
 const HOUR_H = 52;      // 1時間あたりのピクセル高
@@ -538,6 +660,23 @@ const COLORS = [
 
 const DAYS_JP = ['日','月','火','水','木','金','土'];
 
+const MARKERS = [
+  { id:'done',   emoji:'✅', label:'完了'       },
+  { id:'great',  emoji:'⭐', label:'良かった'   },
+  { id:'review', emoji:'🔄', label:'要復習'     },
+  { id:'hard',   emoji:'💪', label:'難しかった' },
+  { id:'skip',   emoji:'⏭️', label:'スキップ'  },
+  { id:'flag',   emoji:'🚩', label:'フラグ'     },
+];
+
+// ===== localStorage =====
+function saveStorage(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch(e) {}
+}
+function loadStorage(key) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch(e) { return null; }
+}
+
 // ===== 状態 =====
 const st = {
   subjects: [],
@@ -551,7 +690,12 @@ const st = {
   nextBid: 4,
   schedule: null,
   week: 0,
+  completions: loadStorage('sf_completions') || {},
+  dayMarkers:  loadStorage('sf_dayMarkers')  || {},
 };
+
+// 現在週のセッションキーマップ（モーダル参照用）
+let currentSessionMap = {};
 
 // ===== 初期化 =====
 document.addEventListener('DOMContentLoaded', () => {
@@ -562,6 +706,7 @@ document.addEventListener('DOMContentLoaded', () => {
   renderDayChips();
   renderSlotList();
   renderSubjectList();
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 });
 
 // ===== 日付ユーティリティ =====
@@ -928,6 +1073,7 @@ function changeWeek(d) {
 }
 
 function renderWeek() {
+  currentSessionMap = {};
   const sch  = st.schedule;
   const week = sch.weeks[st.week];
   if (!week) return;
@@ -959,9 +1105,13 @@ function renderWeek() {
       dow===6    ? 'sat'   : '',
       dow===0    ? 'sun'   : '',
     ].filter(Boolean).join(' ');
-    h += `<div class="${cls}">
+    const dm  = st.dayMarkers[ds] || {};
+    const dmE = markerEmoji(dm.marker);
+    h += `<div class="${cls}" onclick="openDayMarkerModal('${ds}')"
+               title="${dm.note ? esc(dm.note.slice(0,40)) : 'クリックして日付メモを追加'}">
       <div>${DAYS_JP[dow]}</div>
       <div style="font-family:var(--ff-mono);font-size:0.65rem;margin-top:1px;">${d.getMonth()+1}/${d.getDate()}</div>
+      ${dmE ? `<span class="day-marker-overlay">${dmE}</span>` : ''}
     </div>`;
   });
 
@@ -1007,12 +1157,19 @@ function renderWeek() {
       const cTop = Math.max(0, top);
       const cHt  = Math.min(calH-cTop, ht-(cTop-top));
       if (cHt < 6) return;
-      const bg = hexRgba(s.color, 0.14);
+      const bg   = hexRgba(s.color, 0.14);
+      const sKey = `${s.date}__${s.subjectId}__${s.startMin}`;
+      currentSessionMap[sKey] = s;
+      const comp  = st.completions[sKey] || {};
+      const doneC = comp.done ? ' is-done' : '';
       h += `
-        <div class="cal-session" style="top:${cTop}px;height:${cHt}px;background:${bg};border-left-color:${s.color};"
-             title="${esc(s.subjectName)} ${s.startTime}–${s.endTime}">
+        <div class="cal-session${doneC}" style="top:${cTop}px;height:${cHt}px;background:${bg};border-left-color:${s.color};"
+             title="${esc(s.subjectName)} ${s.startTime}–${s.endTime}"
+             onclick="openSessionModal('${sKey}')">
           <div class="cal-sname" style="color:${s.color}">${esc(s.subjectName)}</div>
           <div class="cal-stime" style="color:${s.color}">${s.startTime}–${s.endTime}</div>
+          ${comp.done   ? `<span class="sess-done-badge">✓</span>` : ''}
+          ${comp.marker ? `<span class="sess-marker-badge">${markerEmoji(comp.marker)}</span>` : ''}
         </div>`;
     });
 
@@ -1063,6 +1220,126 @@ function renderLegend() {
       <span>ブロック時間</span>
     </div>`;
   el.innerHTML = subItems + blockedItem;
+}
+
+// ===== モーダル =====
+let _modalMode   = null;  // 'session' | 'day'
+let _modalKey    = null;
+let _modalDone   = false;
+let _modalMarker = null;
+
+function openSessionModal(sKey) {
+  const s = currentSessionMap[sKey];
+  if (!s) return;
+  _modalMode   = 'session';
+  _modalKey    = sKey;
+  const rec    = st.completions[sKey] || {};
+  _modalDone   = rec.done || false;
+  _modalMarker = rec.marker || null;
+
+  document.getElementById('modal-title').textContent = s.subjectName;
+  document.getElementById('modal-sub').textContent   = `${s.date}  ${s.startTime}–${s.endTime}`;
+  document.getElementById('modal-note').value        = rec.note || '';
+  document.getElementById('modal-done-wrap').style.display = '';
+  document.getElementById('btn-clear-record').style.visibility =
+    st.completions[sKey] ? 'visible' : 'hidden';
+  _updateDoneToggle();
+  _renderMarkerChips();
+  document.getElementById('modal-overlay').classList.remove('hidden');
+  setTimeout(() => document.getElementById('modal-note').focus(), 50);
+}
+
+function openDayMarkerModal(date) {
+  _modalMode   = 'day';
+  _modalKey    = date;
+  const rec    = st.dayMarkers[date] || {};
+  _modalDone   = false;
+  _modalMarker = rec.marker || null;
+
+  document.getElementById('modal-title').textContent = `${date} のメモ`;
+  document.getElementById('modal-sub').textContent   = '日付にマーカーやメモを記録できます';
+  document.getElementById('modal-note').value        = rec.note || '';
+  document.getElementById('modal-done-wrap').style.display = 'none';
+  document.getElementById('btn-clear-record').style.visibility =
+    st.dayMarkers[date] ? 'visible' : 'hidden';
+  _renderMarkerChips();
+  document.getElementById('modal-overlay').classList.remove('hidden');
+  setTimeout(() => document.getElementById('modal-note').focus(), 50);
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.add('hidden');
+}
+
+function handleOverlayClick(e) {
+  if (e.target.id === 'modal-overlay') closeModal();
+}
+
+function toggleDone() {
+  _modalDone = !_modalDone;
+  _updateDoneToggle();
+}
+
+function _updateDoneToggle() {
+  const el  = document.getElementById('done-toggle');
+  const ico = document.getElementById('done-icon');
+  const lbl = document.getElementById('done-label');
+  el.classList.toggle('checked', _modalDone);
+  ico.textContent = _modalDone ? '✓' : '○';
+  lbl.textContent = _modalDone ? 'セッション完了済み' : 'このセッションを完了としてマーク';
+}
+
+function _renderMarkerChips() {
+  document.getElementById('marker-chips').innerHTML = MARKERS.map(m =>
+    `<div class="marker-chip${_modalMarker === m.id ? ' selected' : ''}"
+          onclick="selectMarker('${m.id}')">
+       ${m.emoji} ${m.label}
+     </div>`
+  ).join('');
+}
+
+function selectMarker(id) {
+  _modalMarker = (_modalMarker === id) ? null : id;
+  _renderMarkerChips();
+}
+
+function saveRecord() {
+  const note    = document.getElementById('modal-note').value.trim();
+  const hasData = note || _modalMarker || (_modalMode === 'session' && _modalDone);
+  if (_modalMode === 'session') {
+    if (hasData) {
+      st.completions[_modalKey] = { done: _modalDone, note, marker: _modalMarker };
+    } else {
+      delete st.completions[_modalKey];
+    }
+    saveStorage('sf_completions', st.completions);
+  } else {
+    if (hasData) {
+      st.dayMarkers[_modalKey] = { note, marker: _modalMarker };
+    } else {
+      delete st.dayMarkers[_modalKey];
+    }
+    saveStorage('sf_dayMarkers', st.dayMarkers);
+  }
+  closeModal();
+  renderWeek();
+}
+
+function deleteRecord() {
+  if (_modalMode === 'session') {
+    delete st.completions[_modalKey];
+    saveStorage('sf_completions', st.completions);
+  } else {
+    delete st.dayMarkers[_modalKey];
+    saveStorage('sf_dayMarkers', st.dayMarkers);
+  }
+  closeModal();
+  renderWeek();
+}
+
+function markerEmoji(id) {
+  if (!id) return '';
+  return MARKERS.find(m => m.id === id)?.emoji || '';
 }
 
 // ===== ヘルパー =====
