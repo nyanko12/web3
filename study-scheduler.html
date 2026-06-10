@@ -336,7 +336,7 @@
       cursor: default; transition: opacity 0.1s; z-index: 2;
     }
     .cal-session:hover { opacity: 0.8; z-index: 10; }
-    .cal-sname { font-size: 0.67rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
+    .cal-sname { font-size: 0.67rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
     .cal-stime { font-family: var(--ff-mono); font-size: 0.58rem; opacity: 0.8; line-height: 1.2; }
 
     /* ===== 統計バー ===== */
@@ -1416,7 +1416,7 @@ function renderWeek() {
       const cTop = Math.max(0, top);
       const cHt  = Math.min(calH-cTop, ht-(cTop-top));
       if (cHt < 6) return;
-      const bg   = hexRgba(s.color, 0.14);
+      const bg   = hexRgba(s.color, 0.30);
       const sKey = `${s.date}__${s.subjectId}__${s.startMin}`;
       currentSessionMap[sKey] = s;
       const comp  = st.completions[sKey] || {};
