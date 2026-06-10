@@ -581,7 +581,7 @@
 
     <div class="step-actions">
       <button class="btn btn-secondary" onclick="goToStep(1)">← 戻る</button>
-      <button class="btn btn-primary" onclick="handleGenerate()">スケジュール生成 ✦</button>
+      <button class="btn btn-primary" id="gen-btn" onclick="handleGenerate()">スケジュール生成 ✦</button>
     </div>
   </div>
 
@@ -775,15 +775,154 @@ function proceedToStep2() {
   goToStep(2);
 }
 
-function handleGenerate() {
+async function handleGenerate() {
   if (st.subjects.length === 0) {
     goToStep(1);
     return;
   }
-  st.schedule = buildSchedule();
+
+  const btn = document.getElementById('gen-btn');
+  const btnLabel = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'AI生成中… ✦'; }
+
+  try {
+    // まずClaude Haikuで生成を試みる
+    st.schedule = await buildScheduleAI();
+  } catch (e) {
+    // 失敗時は既存のローカルアルゴリズムにフォールバック
+    console.warn('AI生成に失敗、ローカルアルゴリズムにフォールバックします', e);
+    st.schedule = buildSchedule();
+    st.schedule.advice.unshift({
+      type: 'warn',
+      text: 'AIによる生成に失敗したため、簡易アルゴリズムで作成しました。',
+    });
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = btnLabel; }
+  }
+
   st.week = 0;
   goToStep(3);
   renderResult();
+}
+
+// Claude Haiku（サーバー関数経由）でスケジュールを生成する
+async function buildScheduleAI() {
+  const res = await fetch('/api/generate-schedule', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      subjects: st.subjects,
+      blockedDays: st.blockedDays,
+      blockedSlots: st.blockedSlots,
+    }),
+  });
+  if (!res.ok) throw new Error('APIエラー ' + res.status);
+  const data = await res.json();
+  if (!data || !Array.isArray(data.sessions)) throw new Error('不正なレスポンス');
+  return assembleSchedule(data.sessions, data.advice || []);
+}
+
+// AIが返した素のセッション配列を、レンダラが期待するschedule形に組み立てる
+// （週グループ化・達成率・統計は既存ロジックを再利用）
+function assembleSchedule(rawSessions, aiAdvice) {
+  const subs = st.subjects;
+  const subMap = {};
+  subs.forEach(s => { subMap[s.id] = s; });
+
+  const rangeStart = subs.reduce((mn,s)=> s.start<mn?s.start:mn, subs[0].start);
+  const rangeEnd   = subs.reduce((mx,s)=> s.end>mx?s.end:mx,     subs[0].end);
+
+  // 2つの区間 [s1,e1) [s2,e2) が重なるか
+  const overlaps = (s1,e1,s2,e2)=> s1 < e2 && s2 < e1;
+
+  let dropped = 0;  // AIが返した不正セッションの除外数
+
+  // 1次フィルタ: 基本妥当性 + ブロック曜日 + ブロック時間帯 + 最低30分
+  const candidates = (rawSessions || [])
+    .filter(r => {
+      // 科目・数値・期間の妥当性
+      if (!subMap[r.subjectId]) return false;
+      if (!Number.isFinite(r.startMin) || !Number.isFinite(r.endMin)) return false;
+      if (r.endMin <= r.startMin) return false;
+      if (r.startMin < 0 || r.endMin > 1440) return false;
+      if (r.date < rangeStart || r.date > rangeEnd) return false;
+      // 最低30分
+      if (r.endMin - r.startMin < 30) return false;
+      // ブロック曜日
+      if (st.blockedDays.includes(parseDate(r.date).getDay())) return false;
+      // ブロック時間帯（毎日繰り返し）との重なり
+      for (const b of st.blockedSlots) {
+        if (overlaps(r.startMin, r.endMin, b.start, b.end)) return false;
+      }
+      return true;
+    })
+    .sort((a,b)=> a.date.localeCompare(b.date) || a.startMin - b.startMin);
+
+  dropped += (rawSessions ? rawSessions.length : 0) - candidates.length;
+
+  // 2次フィルタ: 同日内のセッション重なりを除去（先着を優先）
+  const kept = [];
+  const lastEndByDate = {};  // 日付ごとの直近採用セッションの終了時刻
+  for (const r of candidates) {
+    const prevEnd = lastEndByDate[r.date];
+    if (prevEnd !== undefined && r.startMin < prevEnd) {
+      dropped++;  // 直前の採用分と重なるので除外
+      continue;
+    }
+    kept.push(r);
+    lastEndByDate[r.date] = r.endMin;
+  }
+
+  // 正規化（科目名・色・時刻を補完）
+  const sessions = kept.map(r => {
+    const sub = subMap[r.subjectId];
+    return {
+      date: r.date, subjectId: sub.id, subjectName: sub.name, color: sub.color,
+      startMin: r.startMin, endMin: r.endMin,
+      startTime: minToTime(r.startMin), endTime: minToTime(r.endMin),
+    };
+  });
+
+  // 達成率の計算（目標分数 tMin vs 確保分数 sMin）
+  const sMin = {}, tMin = {};
+  subs.forEach(s=>{ sMin[s.id]=0; tMin[s.id]=0; });
+  sessions.forEach(se=>{ sMin[se.subjectId] += (se.endMin - se.startMin); });
+
+  let cur = parseDate(rangeStart);
+  const endD = parseDate(rangeEnd);
+  while (cur <= endD) {
+    const ds = fmtDate(cur);
+    if (!st.blockedDays.includes(cur.getDay())) {
+      subs.forEach(s=>{ if (s.start<=ds && s.end>=ds) tMin[s.id] += s.daily; });
+    }
+    cur = addDays(cur, 1);
+  }
+
+  const weeks = groupByWeek(sessions, rangeStart, rangeEnd);
+
+  const advice = Array.isArray(aiAdvice) ? aiAdvice.slice() : [];
+  subs.forEach(s=>{
+    if (tMin[s.id]>0) {
+      const rate = sMin[s.id] / tMin[s.id];
+      if (rate < 0.85) {
+        advice.push({
+          type:'warn',
+          text:`「${s.name}」の達成率が約${Math.round(rate*100)}%です。ブロック時間を減らすか、1日の目標時間を調整してください。`,
+        });
+      }
+    }
+  });
+  if (sessions.length===0) {
+    advice.push({ type:'warn', text:'スケジュールが空です。ブロック曜日・時間帯を見直してください。' });
+  }
+  if (dropped > 0) {
+    advice.push({ type:'info', text:`ブロック時間・重複に抵触した${dropped}件のセッションを自動で除外しました。` });
+  }
+
+  const totalMin  = sessions.reduce((s,se)=> s+(se.endMin-se.startMin), 0);
+  const weeklyAvg = weeks.length ? Math.round(totalMin/weeks.length/60*10)/10 : 0;
+
+  return { weeks, advice, totalMin, weeklyAvg, rangeStart, rangeEnd, sessionCount: sessions.length };
 }
 
 // ===== 科目管理 =====
