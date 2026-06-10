@@ -729,6 +729,19 @@ function loadStorage(key) {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch(e) { return null; }
 }
 
+// スケジュールと入力一式（凡例・統計に必要）をまとめて保存する
+function saveScheduleState() {
+  saveStorage('sf_schedule', {
+    subjects: st.subjects,
+    blockedDays: st.blockedDays,
+    blockedSlots: st.blockedSlots,
+    nextSid: st.nextSid,
+    nextBid: st.nextBid,
+    schedule: st.schedule,
+    week: st.week,
+  });
+}
+
 // ===== 状態 =====
 const st = {
   subjects: [],
@@ -753,9 +766,30 @@ document.addEventListener('DOMContentLoaded', () => {
   const in30  = fmtDate(addDays(new Date(), 30));
   document.getElementById('sf-start').value = today;
   document.getElementById('sf-end').value   = in30;
+
+  // 保存済みスケジュールがあれば入力一式とともに復元
+  const saved = loadStorage('sf_schedule');
+  if (saved && saved.schedule) {
+    st.subjects    = saved.subjects    || [];
+    st.blockedDays = saved.blockedDays || [];
+    if (Array.isArray(saved.blockedSlots)) st.blockedSlots = saved.blockedSlots;
+    if (saved.nextSid) st.nextSid = saved.nextSid;
+    if (saved.nextBid) st.nextBid = saved.nextBid;
+    st.schedule = saved.schedule;
+    st.week = saved.week || 0;
+  }
+
   renderDayChips();
   renderWeekRanges();
   renderSubjectList();
+  updateSubjectCount();
+
+  // 復元したスケジュールがあれば結果画面を表示
+  if (st.schedule) {
+    goToStep(3);
+    renderResult();
+  }
+
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 });
 
@@ -853,6 +887,7 @@ async function handleGenerate() {
   st.week = 0;
   goToStep(3);
   renderResult();
+  saveScheduleState();  // リロードで消えないよう保存
 }
 
 // Claude Haiku（サーバー関数経由）でスケジュールを生成する
@@ -1328,6 +1363,7 @@ function changeWeek(d) {
   const sch = st.schedule;
   st.week = clamp(st.week+d, 0, sch.weeks.length-1);
   renderWeek();
+  saveScheduleState();  // 表示中の週も保存
 }
 
 function renderWeek() {
