@@ -1452,7 +1452,7 @@ function renderWeek() {
       const cTop = Math.max(0, top);
       const cHt  = Math.min(calH-cTop, ht-(cTop-top));
       if (cHt < 6) return;
-      const bg   = hexRgba(s.color, 0.30);
+      const bg   = hexRgba(s.color, 0.45);
       const sKey = `${s.date}__${s.subjectId}__${s.startMin}`;
       currentSessionMap[sKey] = s;
       const comp  = st.completions[sKey] || {};
