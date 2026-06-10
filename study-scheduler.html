@@ -473,6 +473,58 @@
       .cal-stime { display: none; }
       .step-btn span:not(.circle) { display: none; }
     }
+
+    /* ===== 曜日別ブロック時間（数直線エディタ） ===== */
+    .wr-hint { font-size: 12px; color: var(--ink-3); margin-bottom: 14px; }
+    .wr-day { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 24px; }
+    .wr-label {
+      width: 1.8em; text-align: center; font-weight: 700;
+      font-family: var(--ff-mono); color: var(--ink-2); flex: none;
+      line-height: 34px;
+    }
+    .wr-main { flex: 1; min-width: 0; }
+    .wr-track {
+      position: relative; height: 34px; border-radius: 6px;
+      background: var(--green-bg); border: 1px solid var(--line);
+      touch-action: none; user-select: none;
+    }
+    .wr-tick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line); }
+    .wr-ticklabel {
+      position: absolute; top: 100%; transform: translateX(-50%);
+      font-size: 9px; color: var(--ink-3); font-family: var(--ff-mono); margin-top: 2px;
+    }
+    .wr-empty {
+      position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
+      font-size: 11px; color: var(--ink-3); pointer-events: none;
+    }
+    .wr-bar {
+      position: absolute; top: 3px; bottom: 3px; min-width: 2px;
+      background: var(--accent); opacity: .85; border-radius: 5px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: grab; overflow: visible;
+    }
+    .wr-bar.dragging { opacity: 1; cursor: grabbing; }
+    .wr-time {
+      font-size: 10px; color: #fff; font-family: var(--ff-mono);
+      white-space: nowrap; pointer-events: none; padding: 0 4px; overflow: hidden;
+    }
+    .wr-handle {
+      position: absolute; top: -3px; bottom: -3px; width: 16px;
+      cursor: ew-resize; display: flex; align-items: center; justify-content: center; z-index: 2;
+    }
+    .wr-handle::after { content: ''; width: 4px; height: 55%; background: #fff; border-radius: 2px; opacity: .9; }
+    .wr-handle.l { left: -8px; }
+    .wr-handle.r { right: -8px; }
+    .wr-del {
+      position: absolute; top: -10px; right: -8px; width: 16px; height: 16px;
+      border-radius: 50%; background: var(--ink); color: #fff; border: none;
+      font-size: 10px; line-height: 1; display: flex; align-items: center; justify-content: center; z-index: 3;
+    }
+    .wr-addrange {
+      margin-top: 8px; font-size: 12px; color: var(--accent);
+      background: none; border: 1px dashed var(--border); border-radius: 6px; padding: 3px 10px;
+    }
+    .wr-addrange:hover { background: var(--accent-bg); border-color: var(--accent); }
   </style>
 </head>
 <body>
@@ -574,9 +626,9 @@
     </div>
 
     <div class="card" style="margin-top:16px;">
-      <h2 class="stitle">ブロック時間帯</h2>
-      <div class="slot-list" id="slot-list"></div>
-      <button class="btn btn-ghost" onclick="addBlockedSlot()">＋ 時間帯を追加</button>
+      <h2 class="stitle">曜日ごとの勉強できない時間帯</h2>
+      <p class="wr-hint">数直線の上でバーの両端をドラッグして範囲を調整できます。バー本体をドラッグで移動、「＋範囲を追加」で何本でも追加できます。</p>
+      <div id="week-ranges"></div>
     </div>
 
     <div class="step-actions">
@@ -681,13 +733,11 @@ function loadStorage(key) {
 const st = {
   subjects: [],
   blockedDays: [],
-  blockedSlots: [
-    { id:1, label:'睡眠',   start:0,    end:420  },
-    { id:2, label:'学校',   start:510,  end:930  },
-    { id:3, label:'就寝前', start:1320, end:1440 },
-  ],
+  // 曜日ごとのブロック時間帯 { id, day(0=日..6=土), start, end }
+  // 既定値（睡眠/学校/就寝前）を全曜日に複製
+  blockedSlots: buildDefaultBlockedSlots(),
   nextSid: 1,
-  nextBid: 4,
+  nextBid: 100,
   schedule: null,
   week: 0,
   completions: loadStorage('sf_completions') || {},
@@ -704,7 +754,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('sf-start').value = today;
   document.getElementById('sf-end').value   = in30;
   renderDayChips();
-  renderSlotList();
+  renderWeekRanges();
   renderSubjectList();
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 });
@@ -854,9 +904,11 @@ function assembleSchedule(rawSessions, aiAdvice) {
       // 最低30分
       if (r.endMin - r.startMin < 30) return false;
       // ブロック曜日
-      if (st.blockedDays.includes(parseDate(r.date).getDay())) return false;
-      // ブロック時間帯（毎日繰り返し）との重なり
+      const dow = parseDate(r.date).getDay();
+      if (st.blockedDays.includes(dow)) return false;
+      // その曜日のブロック時間帯との重なり
       for (const b of st.blockedSlots) {
+        if (b.day !== dow) continue;
         if (overlaps(r.startMin, r.endMin, b.start, b.end)) return false;
       }
       return true;
@@ -1019,50 +1071,111 @@ function toggleDay(i) {
   renderDayChips();
 }
 
-// ===== ブロックスロット =====
-function renderSlotList() {
-  document.getElementById('slot-list').innerHTML = st.blockedSlots.map(sl => `
-    <div class="slot-row">
-      <input class="slot-name-inp" type="text" value="${esc(sl.label)}"
-        onchange="updateSlotLabel(${sl.id},this.value)" placeholder="ラベル">
-      <div class="slot-times">
-        <input type="time" value="${minToTime(sl.start)}"
-          onchange="updateSlotTime(${sl.id},'start',this.value)">
-        <span class="slot-sep">–</span>
-        <input type="time" value="${sl.end===1440 ? '00:00' : minToTime(sl.end)}"
-          onchange="updateSlotTime(${sl.id},'end',this.value)">
-      </div>
-      <button class="btn-del" onclick="removeSlot(${sl.id})" title="削除">✕</button>
-    </div>`
-  ).join('');
-}
-
-function addBlockedSlot() {
-  st.blockedSlots.push({ id:st.nextBid++, label:'新しいブロック', start:720, end:780 });
-  renderSlotList();
-}
-
-function removeSlot(id) {
-  st.blockedSlots = st.blockedSlots.filter(s=>s.id!==id);
-  renderSlotList();
-}
-
-function updateSlotLabel(id, val) {
-  const s = st.blockedSlots.find(s=>s.id===id);
-  if (s) s.label = val;
-}
-
-function updateSlotTime(id, field, val) {
-  const s = st.blockedSlots.find(s=>s.id===id);
-  if (!s) return;
-  let m = timeToMin(val);
-  if (field==='start') {
-    s.start = m;
-    if (s.start >= s.end) s.end = Math.min(1440, s.start+60);
-  } else {
-    s.end = (m===0) ? 1440 : m;  // 00:00 は 24:00 として扱う
-    if (s.end <= s.start) s.start = Math.max(0, s.end-60);
+// ===== 曜日別ブロック時間（数直線エディタ） =====
+// 既定ブロック（睡眠/学校/就寝前）を全曜日に複製した初期値を作る
+function buildDefaultBlockedSlots() {
+  const defs = [
+    { start:0,    end:420  },  // 睡眠 00:00-07:00
+    { start:510,  end:930  },  // 学校 08:30-15:30
+    { start:1320, end:1440 },  // 就寝前 22:00-24:00
+  ];
+  const out = [];
+  let id = 1;
+  for (let day=0; day<7; day++) {
+    for (const d of defs) out.push({ id: id++, day, start: d.start, end: d.end });
   }
+  return out;
+}
+
+function renderWeekRanges() {
+  const tickHours = [0,6,12,18,24];
+  const ticks = tickHours.map(h=>{
+    const pct = h/24*100;
+    return `<div class="wr-tick" style="left:${pct}%"></div>`
+         + `<div class="wr-ticklabel" style="left:${pct}%">${h}</div>`;
+  }).join('');
+
+  document.getElementById('week-ranges').innerHTML = DAYS_JP.map((d, day) => {
+    const slots = st.blockedSlots.filter(s=>s.day===day).sort((a,b)=>a.start-b.start);
+    const bars = slots.map(sl=>{
+      const left  = sl.start/1440*100;
+      const width = (sl.end-sl.start)/1440*100;
+      const lbl   = minToTime(sl.start)+'–'+(sl.end===1440?'24:00':minToTime(sl.end));
+      return `<div class="wr-bar" style="left:${left}%;width:${width}%"
+                onpointerdown="startRangeDrag(event,${sl.id},'move')">
+                <div class="wr-handle l" onpointerdown="startRangeDrag(event,${sl.id},'l')"></div>
+                <span class="wr-time">${lbl}</span>
+                <div class="wr-handle r" onpointerdown="startRangeDrag(event,${sl.id},'r')"></div>
+                <button class="wr-del" onpointerdown="event.stopPropagation()"
+                  onclick="removeRange(${sl.id})" title="削除">✕</button>
+              </div>`;
+    }).join('');
+    const empty = slots.length ? '' : '<span class="wr-empty">ブロックなし（終日学習可）</span>';
+    return `<div class="wr-day">
+      <div class="wr-label">${d}</div>
+      <div class="wr-main">
+        <div class="wr-track">${ticks}${empty}${bars}</div>
+        <button class="wr-addrange" onclick="addDayRange(${day})">＋ 範囲を追加</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function addDayRange(day) {
+  st.blockedSlots.push({ id:st.nextBid++, day, start:720, end:780 }); // 12:00-13:00
+  renderWeekRanges();
+}
+
+function removeRange(id) {
+  st.blockedSlots = st.blockedSlots.filter(s=>s.id!==id);
+  renderWeekRanges();
+}
+
+// ドラッグ操作（端=リサイズ / 本体=移動）。15分刻みでスナップ。
+let _rangeDrag = null;
+function startRangeDrag(e, id, mode) {
+  e.preventDefault();
+  e.stopPropagation();
+  const slot = st.blockedSlots.find(s=>s.id===id);
+  if (!slot) return;
+  const bar   = e.target.closest('.wr-bar');
+  const track = bar.closest('.wr-track');
+  const rect  = track.getBoundingClientRect();
+  _rangeDrag = {
+    mode, slot, bar,
+    trackWidth: rect.width, startX: e.clientX,
+    origStart: slot.start, origEnd: slot.end,
+  };
+  bar.classList.add('dragging');
+  window.addEventListener('pointermove', onRangeDrag);
+  window.addEventListener('pointerup', endRangeDrag);
+}
+
+function onRangeDrag(e) {
+  if (!_rangeDrag) return;
+  const { mode, slot, bar, trackWidth, startX, origStart, origEnd } = _rangeDrag;
+  const deltaMin = Math.round((e.clientX - startX) / trackWidth * 1440 / 15) * 15;
+  if (mode === 'l') {
+    slot.start = clamp(origStart + deltaMin, 0, origEnd - 15);
+  } else if (mode === 'r') {
+    slot.end = clamp(origEnd + deltaMin, origStart + 15, 1440);
+  } else {
+    const dur = origEnd - origStart;
+    slot.start = clamp(origStart + deltaMin, 0, 1440 - dur);
+    slot.end = slot.start + dur;
+  }
+  // ドラッグ中はDOMだけ更新（再描画しない）
+  bar.style.left  = (slot.start/1440*100) + '%';
+  bar.style.width = ((slot.end-slot.start)/1440*100) + '%';
+  const t = bar.querySelector('.wr-time');
+  if (t) t.textContent = minToTime(slot.start)+'–'+(slot.end===1440?'24:00':minToTime(slot.end));
+}
+
+function endRangeDrag() {
+  if (_rangeDrag) _rangeDrag.bar.classList.remove('dragging');
+  _rangeDrag = null;
+  window.removeEventListener('pointermove', onRangeDrag);
+  window.removeEventListener('pointerup', endRangeDrag);
 }
 
 // ===== スケジューリングアルゴリズム =====
@@ -1087,8 +1200,8 @@ function buildSchedule() {
     const dow = cur.getDay();
 
     if (!st.blockedDays.includes(dow)) {
-      // この日の空き時間スロットを計算
-      let free = calcFreeSlots();
+      // この日（曜日）の空き時間スロットを計算
+      let free = calcFreeSlots(dow);
 
       // この日に有効な科目
       const active = subs.filter(s=> s.start<=ds && s.end>=ds);
@@ -1164,9 +1277,10 @@ function buildSchedule() {
   return { weeks, advice, totalMin, weeklyAvg, rangeStart, rangeEnd, sessionCount: sessions.length };
 }
 
-function calcFreeSlots() {
+function calcFreeSlots(dow) {
   let slots = [{ start:0, end:1440 }];
   for (const b of st.blockedSlots) {
+    if (b.day !== dow) continue;  // その曜日のブロックのみ適用
     slots = subtractSlot(slots, b.start, b.end);
   }
   // 30分未満のスロットは除外
@@ -1282,13 +1396,14 @@ function renderWeek() {
       h += `<div class="cal-hline ${i%3===0?'bold':''}" style="top:${top}px"></div>`;
     }
 
-    // ブロック時間帯の表示
+    // ブロック時間帯の表示（その曜日のものだけ）
     if (!blocked) {
       st.blockedSlots.forEach(sl=>{
+        if (sl.day !== dow) return;
         const top = Math.max(0, minToPx(sl.start));
         const bot = Math.min(calH, minToPx(sl.end));
         if (bot>top) {
-          h += `<div class="cal-blocked" style="top:${top}px;height:${bot-top}px;" title="${esc(sl.label)}"></div>`;
+          h += `<div class="cal-blocked" style="top:${top}px;height:${bot-top}px;" title="勉強できない時間帯"></div>`;
         }
       });
     }

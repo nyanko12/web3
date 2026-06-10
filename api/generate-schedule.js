@@ -55,10 +55,11 @@ function minToTime(m) {
   return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
 
-// 1日(0-1440分)からブロック時間帯を引いて、空き時間帯を計算する
-function freeWindows(blockedSlots) {
+// 指定曜日(dow)のブロック時間帯を1日(0-1440分)から引いて、空き時間帯を計算する
+function freeWindowsForDay(blockedSlots, dow) {
   let slots = [{ start: 0, end: 1440 }];
   for (const b of blockedSlots || []) {
+    if (b.day !== dow) continue; // その曜日のブロックのみ
     const res = [];
     for (const s of slots) {
       if (b.end <= s.start || b.start >= s.end) { res.push(s); continue; }
@@ -68,6 +69,31 @@ function freeWindows(blockedSlots) {
     slots = res;
   }
   return slots.filter((s) => s.end - s.start >= 30);
+}
+
+// 科目群から全体の期間(最小start〜最大end)を求める
+function rangeBounds(subjects) {
+  let start = subjects[0].start, end = subjects[0].end;
+  for (const s of subjects) {
+    if (s.start < start) start = s.start;
+    if (s.end > end) end = s.end;
+  }
+  return { start, end };
+}
+
+// "YYYY-MM-DD" の期間を1日ずつ列挙（UTC基準で曜日も返す）
+function eachDate(startStr, endStr) {
+  const [ys, ms, ds] = startStr.split("-").map(Number);
+  const [ye, me, de] = endStr.split("-").map(Number);
+  let cur = Date.UTC(ys, ms - 1, ds);
+  const end = Date.UTC(ye, me - 1, de);
+  const out = [];
+  while (cur <= end) {
+    const d = new Date(cur);
+    out.push({ date: d.toISOString().slice(0, 10), dow: d.getUTCDay() });
+    cur += 86400000;
+  }
+  return out;
 }
 
 // 入力から、Haikuに渡すプロンプト本文を組み立てる
@@ -89,42 +115,52 @@ function buildPrompt({ subjects, blockedDays, blockedSlots }) {
     })
     .join("\n");
 
-  const blockedDayLines =
-    blockedDays && blockedDays.length
-      ? blockedDays.map((i) => DAYS_JP[i] + "曜").join("、")
-      : "なし";
+  // 曜日ごとの許可時間帯（終日ブロック曜日 or 空きなしは null=終日不可）
+  const dayWindows = {};
+  for (let d = 0; d < 7; d++) {
+    if ((blockedDays || []).includes(d)) { dayWindows[d] = null; continue; }
+    const w = freeWindowsForDay(blockedSlots, d);
+    dayWindows[d] = w.length ? w : null;
+  }
+  const fmtWin = (w) =>
+    w
+      ? w.map((s) => `${s.start}-${s.end}(${minToTime(s.start)}-${minToTime(s.end)})`).join(", ")
+      : "終日学習不可";
 
-  // 空き時間帯を計算して「ここだけ使え」と明示する（ブロック列挙より遵守率が高い）
-  const free = freeWindows(blockedSlots);
-  const freeLines = free.length
-    ? free
-        .map(
-          (s) =>
-            `- ${minToTime(s.start)}〜${minToTime(s.end)}（startMin ${s.start}〜endMin ${s.end} の範囲内）`,
-        )
-        .join("\n")
-    : "（空き時間がありません）";
+  // 期間内の各日付に、その日の許可時間帯を割り当てる（Haikuに曜日計算をさせない）
+  const { start: rs, end: re } = rangeBounds(subjects);
+  const dates = eachDate(rs, re);
+  let scheduleSection;
+  if (dates.length <= 120) {
+    scheduleSection = dates
+      .map(({ date, dow }) => `- ${date}(${DAYS_JP[dow]}): ${fmtWin(dayWindows[dow])}`)
+      .join("\n");
+  } else {
+    // 長期間は曜日別の凡例のみ（各日付の曜日を判定して該当窓を使う）
+    scheduleSection =
+      "（期間が長いため曜日別に記載。各日付の曜日を判定し、その曜日の許可窓を使うこと）\n" +
+      [0, 1, 2, 3, 4, 5, 6]
+        .map((d) => `- ${DAYS_JP[d]}曜: ${fmtWin(dayWindows[d])}`)
+        .join("\n");
+  }
 
   return `あなたは学習スケジュールのプランナーです。以下の条件に従い、各科目の学習セッションを期間全体にわたって配置してください。
 
 # 科目
 ${subjectLines}
 
-# 学習しない曜日（ブロック曜日）
-${blockedDayLines}
-
-# 学習に使える時間帯（空き時間帯）★これ以外の時刻には絶対に置かないこと
-${freeLines}
+# 各日の学習に使える時間帯（この範囲内だけにセッションを置くこと。数値は0時からの分）
+${scheduleSection}
 
 # 配置ルール（厳守）
-- 各セッションの startMin〜endMin は、必ず上記「空き時間帯」のいずれか1つの範囲に完全に収めること。空き時間帯をまたいだり、はみ出したりしてはならない。
-- ブロック曜日には一切セッションを置かないこと。
+- 各セッションの startMin〜endMin は、その「日付」の許可時間帯のいずれか1つに完全に収めること。許可窓をまたいだり、外れたり、はみ出したりしてはならない。
+- 「終日学習不可」の日付にはセッションを一切置かないこと。
+- 各科目はその科目の期間（start〜end）内の日付にのみ置くこと。
 - 各セッションは最低30分。可能な限り「1セッション」の長さに合わせる。
-- 各科目の「1日の目標」分数を、その科目の期間内の各有効日でできるだけ満たす。1日に複数セッション置いてよいが、空き時間帯の範囲内に収めること。
+- 各科目の「1日の目標」分数をできるだけ満たす。1日に複数セッションを置いてよいが、すべて許可窓の範囲内に収めること。
 - 優先度が高い科目、締め切り（期間終了日）が近い科目を優先する。
 - 同じ日のセッション同士は時間を重ねないこと。連続させる場合も最低1分は空ける（推奨は15分の休憩）。
-- date は科目の期間内（YYYY-MM-DD）。subjectId は上記の科目IDを使う。
-- startMin / endMin は 0〜1440 の整数（0時からの分）。
+- date は YYYY-MM-DD。subjectId は上記の科目IDを使う。startMin / endMin は 0〜1440 の整数。
 
 # アドバイス
 - 達成が難しい科目があれば advice に type="warn" で日本語で簡潔に記載する。
