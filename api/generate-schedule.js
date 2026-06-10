@@ -55,6 +55,21 @@ function minToTime(m) {
   return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
 
+// 1日(0-1440分)からブロック時間帯を引いて、空き時間帯を計算する
+function freeWindows(blockedSlots) {
+  let slots = [{ start: 0, end: 1440 }];
+  for (const b of blockedSlots || []) {
+    const res = [];
+    for (const s of slots) {
+      if (b.end <= s.start || b.start >= s.end) { res.push(s); continue; }
+      if (b.start > s.start) res.push({ start: s.start, end: b.start });
+      if (b.end < s.end) res.push({ start: b.end, end: s.end });
+    }
+    slots = res;
+  }
+  return slots.filter((s) => s.end - s.start >= 30);
+}
+
 // 入力から、Haikuに渡すプロンプト本文を組み立てる
 function buildPrompt({ subjects, blockedDays, blockedSlots }) {
   const subjectLines = subjects
@@ -79,15 +94,16 @@ function buildPrompt({ subjects, blockedDays, blockedSlots }) {
       ? blockedDays.map((i) => DAYS_JP[i] + "曜").join("、")
       : "なし";
 
-  const blockedSlotLines =
-    blockedSlots && blockedSlots.length
-      ? blockedSlots
-          .map(
-            (b) =>
-              `- ${b.label || "不可"}: 毎日 ${minToTime(b.start)}〜${minToTime(b.end)}`,
-          )
-          .join("\n")
-      : "なし";
+  // 空き時間帯を計算して「ここだけ使え」と明示する（ブロック列挙より遵守率が高い）
+  const free = freeWindows(blockedSlots);
+  const freeLines = free.length
+    ? free
+        .map(
+          (s) =>
+            `- ${minToTime(s.start)}〜${minToTime(s.end)}（startMin ${s.start}〜endMin ${s.end} の範囲内）`,
+        )
+        .join("\n")
+    : "（空き時間がありません）";
 
   return `あなたは学習スケジュールのプランナーです。以下の条件に従い、各科目の学習セッションを期間全体にわたって配置してください。
 
@@ -97,15 +113,16 @@ ${subjectLines}
 # 学習しない曜日（ブロック曜日）
 ${blockedDayLines}
 
-# 毎日使えない時間帯（ブロック時間帯, 0時起点の時刻）
-${blockedSlotLines}
+# 学習に使える時間帯（空き時間帯）★これ以外の時刻には絶対に置かないこと
+${freeLines}
 
-# 配置ルール
-- 各セッションはブロック時間帯・ブロック曜日を避けて配置する。
+# 配置ルール（厳守）
+- 各セッションの startMin〜endMin は、必ず上記「空き時間帯」のいずれか1つの範囲に完全に収めること。空き時間帯をまたいだり、はみ出したりしてはならない。
+- ブロック曜日には一切セッションを置かないこと。
 - 各セッションは最低30分。可能な限り「1セッション」の長さに合わせる。
-- 各科目の「1日の目標」分数を、その科目の期間内の各有効日でできるだけ満たす。
+- 各科目の「1日の目標」分数を、その科目の期間内の各有効日でできるだけ満たす。1日に複数セッション置いてよいが、空き時間帯の範囲内に収めること。
 - 優先度が高い科目、締め切り（期間終了日）が近い科目を優先する。
-- セッション同士は重ならないようにし、連続する場合は15分程度の休憩を空ける。
+- 同じ日のセッション同士は時間を重ねないこと。連続させる場合も最低1分は空ける（推奨は15分の休憩）。
 - date は科目の期間内（YYYY-MM-DD）。subjectId は上記の科目IDを使う。
 - startMin / endMin は 0〜1440 の整数（0時からの分）。
 

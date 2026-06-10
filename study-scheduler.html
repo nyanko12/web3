@@ -819,7 +819,12 @@ async function buildScheduleAI() {
   if (!res.ok) throw new Error('APIエラー ' + res.status);
   const data = await res.json();
   if (!data || !Array.isArray(data.sessions)) throw new Error('不正なレスポンス');
-  return assembleSchedule(data.sessions, data.advice || []);
+  const sch = assembleSchedule(data.sessions, data.advice || []);
+  // AIは返したが検証で全滅した場合は、フォールバックさせる（空表示を避ける）
+  if (data.sessions.length > 0 && sch.sessionCount === 0) {
+    throw new Error('AIの配置が全てブロック時間/重複に抵触');
+  }
+  return sch;
 }
 
 // AIが返した素のセッション配列を、レンダラが期待するschedule形に組み立てる
